@@ -3,7 +3,7 @@ import collections
 from functools import lru_cache
 
 
-with open('data.txt', 'r') as f:
+with open('dane.txt', 'r') as f:
     lines = [line.strip() for line in f if line.strip()]
 
 
