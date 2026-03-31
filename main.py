@@ -1,92 +1,83 @@
-from collections import deque
+import sys
+import collections
 from functools import lru_cache
 
-def read_graph(filename):
-    with open(filename, 'r') as f:
-        lines = [line.strip() for line in f if line.strip()]
 
-    s, t = map(int, lines[0].split(','))
-    adj = {}
-
-    for line in lines[1:]:
-        v, neighbors = line.split(':')
-        v = int(v)
-        adj[v] = list(map(int, neighbors.split(',')))
-
-    return s, t, adj
+with open('data.txt', 'r') as f:
+    lines = [line.strip() for line in f if line.strip()]
 
 
-def is_connected(adj, owned, s, t):
-    """Check if s and t are connected using only vertices in 'owned'."""
-    if s not in owned or t not in owned:
-        return False
+s_t_line = lines[0]
+s, t = map(int, s_t_line.split(','))
 
+adj = {}
+vertices = set()
+for line in lines[1:]:
+    if ':' in line:
+        v_str, neigh_str = line.split(':', 1)
+        v = int(v_str.strip())
+        neigh = [int(x.strip()) for x in neigh_str.split(',') if x.strip()]
+        adj[v] = set(neigh)
+        vertices.add(v)
+        for nb in neigh:
+            vertices.add(nb)
+
+for u in list(adj):
+    for v in list(adj[u]):
+        if v not in adj:
+            adj[v] = set()
+        adj[v].add(u)
+
+play_vertices = [v for v in sorted(vertices) if v != s and v != t]
+n_play = len(play_vertices)
+vertex_to_bit = {v: i for i, v in enumerate(play_vertices)}
+full_mask = (1 << n_play) - 1 if n_play > 0 else 0
+
+def has_path(short_verts):
+    allowed = {s, t} | set(short_verts)
     visited = set()
-    queue = deque([s])
-
+    queue = collections.deque([s])
+    visited.add(s)
     while queue:
-        v = queue.popleft()
-        if v == t:
+        u = queue.popleft()
+        if u == t:
             return True
-        for u in adj[v]:
-            if u in owned and u not in visited:
-                visited.add(u)
-                queue.append(u)
-
+        for v in adj.get(u, []):
+            if v in allowed and v not in visited:
+                visited.add(v)
+                queue.append(v)
     return False
 
+@lru_cache(maxsize=None)
+def can_destroyer_win(short_mask, unclaimed_mask, cut_turn):
+    short_verts = [play_vertices[i] for i in range(n_play) if short_mask & (1 << i)]
+    
+    if has_path(short_verts):
+        return False
 
-def solve_game(s, t, adj):
-    vertices = list(adj.keys())
-    n = len(vertices)
-    index = {v: i for i, v in enumerate(vertices)}
+    remaining = [play_vertices[i] for i in range(n_play) if unclaimed_mask & (1 << i)]
+    if not has_path(short_verts + remaining):
+        return True
+    
+    if unclaimed_mask == 0:
+        return True
+    
 
-    @lru_cache(None)
-    def dfs(mask, turn):
-        """
-        mask: 2*n bits
-            first n bits → Constructor vertices
-            next n bits → Destructor vertices
-        turn: 0 = Destructor, 1 = Constructor
-        """
+    moves = [i for i in range(n_play) if unclaimed_mask & (1 << i)]
+    
+    if cut_turn:  
+        for i in moves:
+            new_unclaimed = unclaimed_mask ^ (1 << i)
+            if can_destroyer_win(short_mask, new_unclaimed, False):
+                return True
+        return False
+    else:  
+        for i in moves:
+            new_short = short_mask | (1 << i)
+            new_unclaimed = unclaimed_mask ^ (1 << i)
+            if not can_destroyer_win(new_short, new_unclaimed, True):
+                return False
+        return True
 
-        # Decode ownership
-        constructor = set()
-        destructor = set()
-
-        for v in vertices:
-            i = index[v]
-            if mask & (1 << i):
-                constructor.add(v)
-            elif mask & (1 << (i + n)):
-                destructor.add(v)
-
-        # Terminal: all vertices assigned
-        if len(constructor) + len(destructor) == n:
-            return not is_connected(adj, constructor, s, t)  # True = Destructor wins
-
-        # Try all unassigned vertices
-        for v in vertices:
-            i = index[v]
-            if not (mask & (1 << i)) and not (mask & (1 << (i + n))):
-
-                if turn == 0:
-                    # Destructor move
-                    new_mask = mask | (1 << (i + n))
-                    if dfs(new_mask, 1):  # still winning
-                        return True
-                else:
-                    # Constructor move
-                    new_mask = mask | (1 << i)
-                    if not dfs(new_mask, 0):  # Constructor forces win
-                        return False
-
-        return turn == 1  # if Constructor can't win → Destructor wins
-
-    return dfs(0, 0)
-
-
-if __name__ == "__main__":
-    s, t, adj = read_graph("dane.txt")
-    result = solve_game(s, t, adj)
-    print(result)
+result = can_destroyer_win(0, full_mask, True)
+print(result)
